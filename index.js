@@ -15,116 +15,119 @@
 
 
 const util = require('util');
-const moment = require("moment")
-//const utilSK = require('@signalk/nmea0183-utilities');
-var obj = require("./schema.json"); //require empty schema
 const _ = require('lodash');
+var charging
 
 
 module.exports = function(app, options) {
   'use strict';
   var client;
-  var context = "vessels.*";
+  var context = "vessels.self";
 
   return {
     id: "signalk-control-charger",
-    name: "Control Charger scheme",
+    name: "Control Charger limits",
     description: "Plugin to control charging scheme for LiFePo4 (and other) batteries",
 
     schema: {
       title: "Control Charger scheme",
       type: "object",
       required: [
-      "batteryInstance",
-      "normalLowerLimit",
-      "normalUpperLimit",
-      "extendedLowerLimit",
-      "extendedUpperLimit",
-      "pathToBattery"
-    ],
-    properties: {
-      batteryInstance: {
-        type: "string",
-        title: "Battery Instance (House, 0, 1 etc)"
-      },
-      normalLowerLimit: {
-        type: "number",
-        title: "Normal lower limit for state of charge (0-1)",
-        default: 0.4
-      },
-      normalUpperLimit: {
-        type: "number",
-        title: "Normal upper limit for state of charge (0-1)",
-        default: 0.8
-      },
-      extendedLowerLimit: {
-        type: "number",
-        title: "Extended lower limit for state of charge (0-1)",
-        default: 0.8
-      },
-      extendedUpperLimit: {
-        type: "number",
-        title: "Extended upper limit for state of charge (0-1)",
-        default: 0.4
-      },
-      pathToBattery: {
-        type: "string",
-        title: "Signal K path to battery instance (only instance e.g. electrical.batteries.House). Boolean extendedCharge will be added under here",
-        default: "electrical.batteries.House"
+        "batteryInstance",
+        "normalLowerLimit",
+        "normalUpperLimit",
+        "extendedLowerLimit",
+        "extendedUpperLimit",
+        "pathToBattery"
+      ],
+      properties: {
+        tripBool: {
+          type: "boolean",
+          title: "Charge to extended limits?",
+          default: false
+        },
+        batteryInstance: {
+          type: "string",
+          title: "Battery Instance (House, 0, 1 etc)",
+          default: "House"
+        },
+        normalLowerLimit: {
+          type: "number",
+          title: "Normal lower limit for state of charge (0-1)",
+          default: 0.4
+        },
+        normalUpperLimit: {
+          type: "number",
+          title: "Normal upper limit for state of charge (0-1)",
+          default: 0.8
+        },
+        extendedLowerLimit: {
+          type: "number",
+          title: "Extended lower limit for state of charge (0-1)",
+          default: 0.8
+        },
+        extendedUpperLimit: {
+          type: "number",
+          title: "Extended upper limit for state of charge (0-1)",
+          default: 0.99
+        },
+        pathToBattery: {
+          type: "string",
+          title: "Signal K path to battery instance (only instance e.g. electrical.batteries.House). Boolean 'commandCharge' will be added under here",
+          default: "electrical.batteries.House"
+        }
       }
-    }
     },
 
     start: function(options) {
       app.setProviderStatus("Started")
-      plugin.properties = options
-      if (app.streambundle.getAvailablePaths().includes(options.pathToBattery + ".capacity.stateOfCharge")){
-        let stream
-        stream = app.streambundle.getSelfStream(options.pathToBattery + ".capacity.stateOfCharge")
-      } else {
-        app.error("could not find state of charge at " + options.pathToBattery + ".capacity.stateOfCharge")
-      }
+
+      var regularCheck = setInterval(function(){
+        //app.debug("checking for soc")
+        if (app.streambundle.getAvailablePaths().includes(options.pathToBattery + ".capacity.stateOfCharge")){
+          app.setProviderStatus("Started, found battery SOC")
+          app.debug("found SOC")
+          var soc = app.getSelfPath(options.pathToBattery + ".capacity.stateOfCharge.value")
+          app.debug("SOC = " + soc)
+          var lowerLimit, upperLimit
+          if (options.tripBool){ //charging to extended limits
+            lowerLimit = options.extendedLowerLimit
+            upperLimit = options.extendedUpperLimit
+          } else {
+            lowerLimit = options.normalLowerLimit
+            upperLimit = options.normalUpperLimit
+          }
+          if (soc < lowerLimit){
+            charging = true
+          }
+          if (soc > upperLimit){
+            charging = false
+          }
+
+          var delta = {
+            context: context,
+            updates: [
+              {
+                values: [
+                  {
+                    path: options.pathToBattery + ".commandCharge",
+                    value: charging
+                  }
+                ]
+              }
+            ]
+          }
+          app.handleMessage(app.id, delta)
+
+        } else {
+          app.setProviderError("could not find state of charge at " + options.pathToBattery + ".capacity.stateOfCharge")
+        }
+      }, 3000);
 
     },
-
-    /*registerWithRouter: function(router) {
-      // http://localhost:3000/ArcGis/API/getJson
-      app.get('/ArcGis/API/getJson', (req, res) => {
-        res.contentType('application/json');
-        obj.features = [] //initialize so it does not grow by each call
-
-        var response = {}
-        _.values(app.getPath('vessels')).map((vessel) => {
-          var attributes = {} //initialize each vessel
-          attributes.MMSI = parseInt(vessel.mmsi)
-          attributes.IMO = parseInt(vessel.imo)
-          attributes.LAT = parseFloat(_.get(vessel, 'navigation.position.value.latitude'))
-          attributes.LON = parseFloat(_.get(vessel, 'navigation.position.value.longitude'))
-          attributes.SPEED = parseFloat(utilSK.transform(_.get(vessel, 'navigation.speedOverGround.value'), 'ms', 'knots'))
-          attributes.HEADING = parseFloat(utilSK.transform(_.get(vessel, 'navigation.headingTrue.value'), 'rad', 'deg'))
-          attributes.COURSE = parseFloat(utilSK.transform(_.get(vessel, 'navigation.courseOverGroundTrue.value'), 'rad', 'deg'))
-          attributes.STATUS = _.get(vessel, 'navigation.state.value')
-          attributes.TIMESTAMP_ = moment(_.get(vessel, 'navigation.position.timestamp')).unix()
-          attributes.SOURCE = _.get(vessel, 'navigation.position.$source')
-          attributes.SHIPNAME = vessel.name
-          attributes.SHIPTYPE = _.get(vessel, 'design.aisShipType.value.name')
-          attributes.CALLSIGN = _.get(vessel, 'communication.callsignVhf')
-          attributes.FLAG = countries.getName(vessel.flag, "en")
-
-          var geometry = {}
-          geometry.x = attributes.LON
-          geometry.y = attributes.LAT
-
-          response.attributes = attributes
-          response.geometry = geometry
-          obj.features.push({ attributes, geometry })
-        })
-        res.send(JSON.stringify(obj, null, 4))
-      })
-    },*/
-
     stop: function() {
       app.setProviderStatus("Stopped")
+      clearInterval(regularCheck)
     }
   }
 }
