@@ -1,0 +1,14 @@
+{
+  "name": "signalk-control-charger",
+  "version": "0.1.0",
+  "description": "Plugin to control charging scheme for LiFePo4 (and other) batteries",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "signalk-node-server-plugin"
+  ],
+  "author": "Joachim Bakke",
+  "license": "CC-BY-SA-2.0"
+}
