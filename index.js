@@ -17,6 +17,7 @@
 const util = require('util');
 const _ = require('lodash');
 var charging
+var regularCheck
 
 
 module.exports = function(app, options) {
@@ -82,7 +83,7 @@ module.exports = function(app, options) {
     start: function(options) {
       app.setProviderStatus("Started")
 
-      var regularCheck = setInterval(function(){
+      regularCheck = setInterval(function(){
         //app.debug("checking for soc")
         if (app.streambundle.getAvailablePaths().includes(options.pathToBattery + ".capacity.stateOfCharge")){
           app.setProviderStatus("Started, found battery SOC")
